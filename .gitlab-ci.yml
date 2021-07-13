@@ -1,0 +1,18 @@
+stages:
+  - triggers
+
+deploy_be:
+  stage: triggers
+  when: manual
+  only:
+    - master
+  trigger:
+    include: backend/.gitlab-ci.yml
+
+deploy_fe:
+  stage: triggers
+  when: manual
+  only:
+    - master
+  trigger:
+    include: .gitlab-ci-fe.yml

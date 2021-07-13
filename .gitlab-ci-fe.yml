@@ -1,0 +1,50 @@
+image: docker:18
+
+services:
+  - docker:dind
+
+# Cache modules in between jobs
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - node_modules/
+
+before_script:
+  - docker info
+  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+stages:
+  - build
+  - deploy
+
+build_fe:
+  stage: build
+  only:
+    - master
+  script:
+    - echo "Fetch latest image"
+    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - echo "Building the app"
+    - docker build --pull --cache-from $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+deploy:
+  stage: deploy
+  image: docker:git
+  services:
+    - docker:dind
+  variables:
+    GIT_STRATEGY: none
+  environment:
+    name: production
+  before_script:
+    - mkdir -p ~/.ssh
+    - echo "$DEPLOY_SERVER_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - eval "$(ssh-agent -s)"
+    - ssh-add -k ~/.ssh/id_rsa
+    - ssh-keyscan -H $DEPLOYMENT_SERVER_IP >> ~/.ssh/known_hosts
+  script:
+    - echo "Deploy service $DEPLOYMENT_SERVICE, version $CI_COMMIT_SHA"
+    - printf "SERVICE=${CI_REGISTRY_IMAGE}\nVERSION=${CI_COMMIT_SHA}\n" > environment.env
+    - ssh $DEPLOYMENT_SERVER_USER@$DEPLOYMENT_SERVER_IP "cd $DEPLOYMENT_REPO_DIR; bash ./rolling_update.sh ${CI_REGISTRY_USER} ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY} ${DEPLOYMENT_SERVICE} ${CI_COMMIT_SHA};"
